@@ -106,7 +106,7 @@ class Lexer {
         }
     }
 
-    private function loc(): Loc {
+    public function loc(): Loc {
         return new Loc(file_path: $this->file_path, row: $this->row, col: $this->cur - $this->bol);
     }
 
@@ -181,16 +181,131 @@ class Lexer {
     }
 }
 
+function expect_token(Lexer $lexer, TokenEnum ...$types): Token | bool{
+    $token = $lexer->next_token();
+
+    if(!$token){
+        echo sprintf("%s: ERROR: expected %s but got end of file\n", 
+            $lexer->loc()->display(), join(" or", $types));
+        return false;
+    }
+
+
+    foreach($types as &$type) {
+        if ($token->type === $type) {
+            return $token;
+        }
+    }
+
+    echo sprintf("%s: ERROR: expected %s but got %s\n",
+        $lexer->loc()->display(),
+        join(" or ", array_map(fn($type) =>  $type->value, $types)),
+        $token->type->value);
+    return false;
+}
+
+
+define("TYPE_INT", "TYPE_INT");
+
+class FuncallStmt {
+    public string $name;
+    public $args;
+
+    
+    public function __construct(string $name, $args) {
+        $this->name = $name;
+        $this->args = $args;
+    }
+}
+
+class RetStmt {
+    public $expr;
+
+    public function __construct(string $expr) {
+        $this->expr = $expr;
+    }
+}
+
+class Func {
+    public string $name;
+    public $body;
+
+    public  function __construct(string $name, $body){
+        $this->name = $name;
+        $this->body = $body;
+    }
+}
+
+function parse_type(Lexer $lexer) {
+    $return_type = expect_token($lexer, TokenEnum::TokenName);
+    if ($return_type->value !== "int") {
+        echo sprintf("%s: ERROR: unexpected type %s", 
+            $return_type->loc->display(),
+            $return_type->value);
+        return false;
+    }
+    return TYPE_INT;
+}
+
+function parse_arglist(Lexer $lexer) {
+    if (!expect_token($lexer, TokenEnum::TokenOParan)) return false;
+    $arglist = array();
+
+    while(true){
+        $expr = expect_token($lexer, TokenEnum::TokenString, TokenEnum::TokenNumber, TokenEnum::TokenCParan);
+        if(!$expr) return false;
+        if($expr->type === TokenEnum::TokenCParan) break;
+        array_push($arglist, $expr->value);
+    }
+
+    return $arglist;
+}
+
+function parse_block(Lexer $lexer) {
+    if (!expect_token($lexer, TokenEnum::TokenOCurly)) return false;
+    $block = array();
+
+    while(true){
+        $name = expect_token($lexer, TokenEnum::TokenName, TokenEnum::TokenCCurly);
+        if(!$name) return false;
+        if($name->type === TokenEnum::TokenCCurly) break;
+
+        if($name->value === "return") {
+            $expr = expect_token($lexer, TokenEnum::TokenNumber);
+            if(!$expr) return false;
+            array_push($block, new RetStmt(expr: $expr->value));
+        } else {
+            $arglist = parse_arglist($lexer);
+            if(!$arglist) return false;
+            array_push($block, new FuncallStmt($name->value, $arglist));
+        }
+
+        if(!expect_token($lexer, TokenEnum::TokenSemiColon)) return false;
+    }
+
+    return $block;
+}
+
+function parse_function(Lexer $lexer){
+    $return_type = parse_type($lexer);
+    if($return_type) false;
+
+    assert($return_type === TYPE_INT);
+
+    $name = expect_token($lexer, TokenEnum::TokenName);
+    if(!$name) return;
+
+    // void main() {}
+    if (!expect_token($lexer, TokenEnum::TokenOParan)) return false;
+    if (!expect_token($lexer, TokenEnum::TokenCParan)) return false;
+
+    $block = parse_block($lexer);
+
+    return new Func($name->value, $block);
+}
 
 $source = file_get_contents("./main.c") or die;
 $lexer = new Lexer(source: $source, file_path: "main.c");
+$func = parse_function($lexer);
 
-while (true) {
-    $token = $lexer->next_token();
-
-    if(!$token) {
-        break;
-    }
-
-    echo sprintf("%s: %s | %s\n", $token->loc->display(), $token->type->value, $token->value);
-}
+var_dump($func);
