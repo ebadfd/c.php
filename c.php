@@ -208,11 +208,11 @@ function expect_token(Lexer $lexer, TokenEnum ...$types): Token | bool{
 define("TYPE_INT", "TYPE_INT");
 
 class FuncallStmt {
-    public string $name;
+    public Token $name;
     public $args;
 
     
-    public function __construct(string $name, $args) {
+    public function __construct(Token $name, $args) {
         $this->name = $name;
         $this->args = $args;
     }
@@ -227,10 +227,10 @@ class RetStmt {
 }
 
 class Func {
-    public string $name;
+    public Token $name;
     public $body;
 
-    public  function __construct(string $name, $body){
+    public  function __construct(Token $name, $body){
         $this->name = $name;
         $this->body = $body;
     }
@@ -277,7 +277,7 @@ function parse_block(Lexer $lexer) {
         } else {
             $arglist = parse_arglist($lexer);
             if(!$arglist) return false;
-            array_push($block, new FuncallStmt($name->value, $arglist));
+            array_push($block, new FuncallStmt($name, $arglist));
         }
 
         if(!expect_token($lexer, TokenEnum::TokenSemiColon)) return false;
@@ -301,11 +301,95 @@ function parse_function(Lexer $lexer){
 
     $block = parse_block($lexer);
 
-    return new Func($name->value, $block);
+    return new Func($name, $block);
 }
 
 $source = file_get_contents("./main.c") or die;
 $lexer = new Lexer(source: $source, file_path: "main.c");
 $func = parse_function($lexer);
 
-var_dump($func);
+
+class Compiler {
+    public Func $func;
+
+    public function __construct(Func $func){
+        $this->func = $func;
+    }
+
+    public function compile() : void {
+        $this->generate_ARM64_apple_silicon();
+    }
+
+    private function error(): void {
+        exit(0);
+    }
+
+    private function generate_python3(): void{
+        foreach ($this->func->body as $stmt) {
+            if($stmt instanceof FuncallStmt) {
+                switch ($stmt->name->value) {
+                    case 'printf':
+                        echo sprintf("print(\"%s\")\n", join(", ", $stmt->args));
+                        break;
+                    default:
+                        echo sprintf("%s: ERROR: unknown function %s\n",
+                           $stmt->name->loc->display(),
+                           $stmt->name->value); 
+                        break;
+                }
+            }
+        }
+    }
+
+    private function generate_ARM64_apple_silicon(): void {
+        print(".global _start \n");
+        print(".p2align 3     \n\n");
+        print("_start: \n");
+        $variables = array();
+
+        foreach ($this->func->body as $stmt) {
+            if($stmt instanceof RetStmt) {
+                //print("    mov rax, 60\n");
+                //print("    mov rdi, {$stmt->expr}\n");
+                //print("    syscall\n");
+                
+                print("mov     X0, #0\n"); // Use 0 return code
+                print("mov     X16, #1\n");     // Service command code 1 terminates this program
+                print("svc     0    \n");    // Call MacOS to terminate the program
+            }
+
+            //         array_push($arglist, $expr->value);
+
+            if($stmt instanceOf FuncallStmt){
+                switch ($stmt->name->value) {
+                    case 'printf':
+                        $n = 'str_'.count($variables);
+                        $var_len = join(", ", $stmt->args);
+
+                        print("mov X0, #1  \n");
+                        print("adr X1, {$n}\n");
+                        print("mov X2, #13 \n");
+                        print("mov X16, #4 \n");
+                        print("svc 0       \n");
+
+                        $variables[$n] = join(", ", $stmt->args);
+                        break;
+                    default:
+                        echo sprintf("%s: ERROR: unknown function %s\n",
+                           $stmt->name->loc->display(),
+                           $stmt->name->value); 
+                        break;
+                }
+            }
+        }
+
+        print("\n\n");
+
+        foreach ($variables as $key => $value) {
+            print("{$key}:      .ascii  \"{$value}\"\n");
+        }
+    }
+}
+
+$res = new Compiler($func);
+$res->compile();
