@@ -1,5 +1,12 @@
 <?php 
+require __DIR__.'/vendor/autoload.php';
 
+use Symfony\Component\Console\Application;
+use Symfony\Component\Console\Command\Command;
+use Symfony\Component\Console\Input\InputArgument;
+use Symfony\Component\Console\Input\InputInterface;
+use Symfony\Component\Console\Input\InputOption;
+use Symfony\Component\Console\Output\OutputInterface;
 
 function todo($message){
     throw new ErrorException("ERROR: not implemented " . $message);
@@ -304,11 +311,6 @@ function parse_function(Lexer $lexer){
     return new Func($name, $block);
 }
 
-$source = file_get_contents("./main.c") or die;
-$lexer = new Lexer(source: $source, file_path: "main.c");
-$func = parse_function($lexer);
-
-
 class Compiler {
     public Func $func;
 
@@ -316,15 +318,11 @@ class Compiler {
         $this->func = $func;
     }
 
-    public function compile() : void {
-        $this->generate_ARM64_apple_silicon();
-    }
-
     private function error(): void {
         exit(0);
     }
 
-    private function generate_python3(): void{
+    public function generate_python3(): void{
         foreach ($this->func->body as $stmt) {
             if($stmt instanceof FuncallStmt) {
                 switch ($stmt->name->value) {
@@ -341,7 +339,7 @@ class Compiler {
         }
     }
 
-    private function generate_ARM64_apple_silicon(): void {
+    public function generate_ARM64_apple_silicon(): void {
         print(".global _start \n");
         print(".p2align 3     \n\n");
         print("_start: \n");
@@ -391,5 +389,37 @@ class Compiler {
     }
 }
 
-$res = new Compiler($func);
-$res->compile();
+
+$application = new Application();
+
+$application->register(name:'build')
+    ->addOption(name: "input", shortcut: "i", mode: InputOption::VALUE_REQUIRED)
+    ->addOption(name: 'target', 
+        shortcut: "t", mode:  InputOption::VALUE_REQUIRED, suggestedValues: ["python", "asm"], 
+        description: "build target", default: "asm"
+    )
+    ->setCode(function (InputInterface $input, OutputInterface $output): int {
+        $source = trim($input->getOption("input"));
+        $target = trim($input->getOption("target"));
+
+        $source = file_get_contents($source) or die;
+        $lexer = new Lexer(source: $source, file_path: $source);
+        $func = parse_function($lexer);
+
+        $compiler = new Compiler($func);
+
+        $return_value = match($target) {
+            'python' => $compiler->generate_python3(),
+            'asm' => $compiler->generate_ARM64_apple_silicon(),
+            default =>  (function(OutputInterface $output, $target){
+                $output->writeln(sprintf("Target type %s is not currently supported", $target));
+                die();
+            })($output, $target)
+        };
+
+        var_dump($return_value);
+
+        return Command::SUCCESS;
+    });
+
+    $application->run();

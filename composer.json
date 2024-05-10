@@ -6,5 +6,7 @@
             "email": "z9fr@protonmail.com"
         }
     ],
-    "require": {}
+    "require": {
+        "symfony/console": "^7.0"
+    }
 }
