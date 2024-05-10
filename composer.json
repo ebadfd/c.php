@@ -1,5 +1,6 @@
 {
     "name": "z9fr/c.php",
+    "description": "c compiler in php",
     "authors": [
         {
             "name": "z9fr",
